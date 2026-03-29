@@ -1,0 +1,2266 @@
+---
+title: "Untitled"
+author: "KIBIDI"
+date: "2026-03-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("E:/ALCHYMEDIC")
+```
+
+
+
+#load libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(skimr)
+library(stringr)
+library(tidyr)
+library(reshape2)
+library(car)
+library(MASS)
+library(caret)
+library(multcomp)
+library(glmnet)
+library(GGally)
+library(Hmisc)
+library(dunn.test)
+library(glmnet)
+library(ggplot2)
+
+```
+
+
+
+#Load the data set
+```{r}
+income<-read.csv('customerData.csv')
+View(income)
+head(income)
+```
+
+
+#1. Data Audit :Inspect structure of dataset
+```{r}
+str(income)
+```
+
+
+#1. Data Audit :summary of data
+```{r}
+summary(income)
+```
+
+
+#more info about data...currency of income
+```{r}
+??customerData
+```
+
+
+
+#1. Data Audit :descriptive stats
+```{r}
+describe(income)
+```
+
+
+#unique variables on each column and there frequency
+```{r}
+char_cols <- sapply(income, is.character)
+
+lapply(income[ , char_cols], function(x) {
+  table(x)
+})
+```
+
+
+
+#1. Data Audit ;Identify: Missing values 
+```{r}
+income %>%
+  summarise_all(~ sum(is.na(.)))
+
+#after running code found out there are 0 missing values in this data set
+```
+
+
+#1. Data Audit ;visualize: Missing values per column 
+```{r}
+
+df_char <- income %>%
+  mutate(across(everything(), as.character))  # convert all to character
+
+df_char %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  mutate(is_na = is.na(value)) %>%
+  group_by(variable, is_na) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  ggplot(aes(x = variable, y = count, fill = is_na)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Missing Values per Column", y = "Count", x = "Variable") +
+  scale_fill_manual(values = c("steelblue", "red"), labels = c("Observed", "Missing"))
+```
+
+
+
+#1. Data Audit ;Identify Duplicates 
+```{r}
+duplicated(income)
+
+#after running code found out there are 0 duplicated values in this data set
+```
+
+
+
+
+#sum of duplicates
+```{r}
+sum(duplicated(income))
+```
+
+
+#1. Data Audit a) identify data incosistencies:analyse unique variables in each character column and find their frequency
+```{r}
+char_cols <- sapply(income, is.character)
+
+lapply(income[ , char_cols], function(x) {
+  table(x)
+})
+```
+
+
+
+
+
+#1. Data Audit b) identify data incosistencies:skim
+```{r}
+skim(income)
+```
+
+
+
+#1. Data Audit c)identify data incosistencies: outliers box plot
+```{r}
+boxplot(income$age, main="Outliers_age")
+boxplot(income$annual_income, main="Outliers_annual_income")
+boxplot(income$number_of_children, main="Outliers_number_of_children")
+boxplot(income$annual_spending, main="Outliers_annual_spending")
+boxplot(income$credit_score, main="Outliers_credit_score")
+boxplot(income$loyalty_years, main="Outliers_loyalty_years")
+
+
+#age and number of children have no outliers 
+```
+
+
+#barplots
+```{r}
+barplot(table(income$gender),main='frequency of gender', xlab='column', ylab='count', col='purple')
+
+barplot(table(income$education),main='frequency of education', xlab='column', ylab='count', col='green')
+
+barplot(table(income$employment_status),main='frequency of employment status', xlab='column', ylab='count', col='skyblue')
+
+barplot(table(income$marital_status),main='frequency of marital status', xlab='column', ylab='count', col='red')
+
+barplot(table(income$region),main='frequency of region', xlab='column', ylab='count', col='black')
+
+barplot(table(income$payment_type),main='frequency of payment_type', xlab='column', ylab='count', col='yellow')
+
+barplot(table(income$online_shopper),main='frequency of online_shopper', xlab='column', ylab='count', col='pink')
+
+
+barplot(table(income$churn),main='frequency of churn', xlab='column', ylab='count', col='orange')
+
+```
+
+
+
+
+
+#1. Data Audit :Data dictionary
+```{r}
+data.frame(
+  column = names(income),
+  type = sapply(income, class),
+  unique_values = sapply(income, function(x) length(unique(x)))
+)
+```
+
+
+
+#2. Data Cleaning :Impute missing values: Use median imputation by education level for annual_income
+```{r}
+#the available data set does not have missing data but if it had this would be the code i would use to impute 
+library(dplyr)
+
+income_clean <- income %>%
+  group_by(education) %>%
+  mutate(
+    annual_income = ifelse(
+      is.na(annual_income),
+      median(annual_income, na.rm = TRUE),
+      annual_income
+    )
+  ) %>%
+  ungroup()
+
+income_clean
+```
+
+
+
+#Detect anomalies:  Age < 18 
+```{r}
+income_clean <- income %>%
+  mutate(age_anomaly = ifelse(age < 18, 1, 0))
+unique(income_clean$age_anomaly)
+table(income_clean$age_anomaly)
+```
+
+
+
+#visualize age distribution
+```{r}
+ggplot(income, aes(x = age)) +
+  geom_histogram(aes(y = ..density..), binwidth = 5,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Age Distribution with Density", x = "Age", y = "Density") +
+  theme_minimal()
+```
+
+
+
+
+#Detect anomalies: Negative or unrealistic spending & VISUALIZE
+```{r}
+income_clean <- income %>%
+  mutate(spending_anomaly = ifelse(annual_spending < 0 | annual_spending > 1000000, 1, 0))
+table(income_clean$spending_anomaly)
+
+boxplot(income$annual_spending, main="Outliers_annual_spending")
+```
+
+
+#visualize annual_spending distribution
+```{r}
+ggplot(income, aes(x = annual_spending)) +
+  geom_histogram(aes(y = ..density..), binwidth = 5000,
+                 fill = "lightgreen", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Annual Spending Distribution with Density", x = "Annual Spending", y = "Density") +
+  theme_minimal()
+```
+
+
+
+
+#• Standardize categorical variables 
+```{r}
+
+income_clean <- income_clean %>%
+  mutate(
+    # Convert to lower case and trim spaces
+    gender = str_to_title(str_trim(gender)),
+    employment_status = str_to_title(str_trim(employment_status)),
+    education = str_to_title(str_trim(education)),
+    marital_status = str_to_title(str_trim(marital_status)),
+    region = str_to_title(str_trim(region))
+  )
+tail(income_clean,10)
+```
+
+
+
+
+#3. Outlier Treatment :Apply IQR method on: annual_spending, credit_score (income_clean)-outlier iqr treatment
+```{r}
+iqr_treatment <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  
+  lower <- Q1 - 1.5 * IQR
+  upper <- Q3 + 1.5 * IQR
+  
+  # Cap the outliers to lower and upper bounds
+  x[x < lower] <- lower
+  x[x > upper] <- upper
+  return(x)
+}
+
+income_clean$annual_spending <- iqr_treatment(income_clean$annual_spending)
+income_clean$credit_score   <- iqr_treatment(income_clean$credit_score)
+
+ggplot(income, aes(x = annual_spending)) +
+  geom_histogram(aes(y = ..density..), binwidth = 3000,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Annual Spending Distribution with Density", x = "Annual Spending", y = "Density") +
+  theme_minimal()
+
+
+ggplot(income_clean, aes(x = annual_spending)) +
+  geom_histogram(aes(y = ..density..), binwidth = 3000,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Annual Spending Distribution with Density", x = "Annual Spending", y = "Density") +
+  theme_minimal()
+```
+
+#box certify treated outliers in annual_spending, credit_score
+```{r}
+boxplot(income_clean$annual_spending, main="Outliers_annual_spending")
+boxplot(income_clean$credit_score, main="Outliers_credit_score")
+```
+n/b outliers stll exist in annual income and loyalty years
+
+
+
+#removing outliers
+```{r}
+Q1 <- quantile(income$annual_spending, 0.25, na.rm = TRUE)
+Q3 <- quantile(income$annual_spending, 0.75, na.rm = TRUE)
+IQR_val <- Q3 - Q1
+
+income2 <- income_clean %>%
+  filter(annual_spending >= (Q1 - 1.5*IQR_val) &
+         annual_spending <= (Q3 + 1.5*IQR_val))
+
+
+ggplot(income2, aes(x = annual_spending)) +
+  geom_histogram(aes(y = ..density..), binwidth = 5000,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Annual Spending Distribution with Density", x = "Annual Spending", y = "Density") +
+  theme_minimal()
+
+```
+
+#box certify removed outliers in annual_spending, credit_score
+```{r}
+boxplot(income2$annual_spending, main="Outliers_annual_spending")
+boxplot(income2$credit_score, main="Outliers_credit_score")
+```
+n/b outliers stll exist in annual income and loyalty years
+
+
+#stats
+```{r}
+describe(income_clean)
+```
+
+
+
+
+
+
+#Phase 2: Preprocessing & Feature Engineering (Week 3) 1. Feature Engineering -Create: spending_to_income_ratio
+```{r}
+income2 <- income_clean %>%
+  mutate(spending_to_income_ratio = annual_spending / annual_income)
+tail(income_clean,10)
+```
+
+
+#custommer tenure
+```{r}
+income_clean <- income_clean %>%
+  mutate(customer_tenure_group = case_when(
+    loyalty_years < 5  ~ "New",
+    loyalty_years < 15 ~ "Mid-term",
+    loyalty_years >= 15 ~ "Long-term"
+  ))
+tail(income_clean,10)
+```
+
+
+
+
+#add financial_stability_score column
+```{r}
+income_clean <- income_clean %>%
+  mutate(financial_stability_score = 
+           (annual_income / max(annual_income, na.rm = TRUE)) * 0.4 +
+           (credit_score / max(credit_score, na.rm = TRUE)) * 0.4 +
+           ((1 - (annual_spending / annual_income)) * 0.2)
+         )
+
+income_clean <-income_clean %>%
+  mutate(stability_level = case_when(
+    financial_stability_score < 0.4 ~ "Low",
+    financial_stability_score < 0.7 ~ "Medium",
+    TRUE ~ "High"
+  ))
+
+tail(income_clean,10)
+
+```
+
+
+
+
+#check stability level stats
+```{r}
+table(income_clean$stability_level)
+```
+
+
+#• Encode categorical variables appropriately
+```{r}
+
+income_clean <- income_clean %>%
+  mutate(
+    gender = as.factor(gender),
+    education = as.factor(education),
+    employment_status = as.factor(employment_status),
+    marital_status = as.factor(marital_status),
+    region = as.factor(region),
+    payment_type = as.factor(payment_type),
+    online_shopper = as.factor(online_shopper),
+    churn = as.factor(churn)
+  )
+tail(income_clean,10)
+```
+
+
+
+
+#• Standardize numeric variables where necessary round off remove floats
+```{r}
+income_clean$annual_income <- as.integer(round(income_clean$annual_income))
+income_clean$annual_spending <- as.integer(round(income_clean$annual_spending))
+tail(income_clean,10)
+```
+
+
+#display only two columns
+```{r}
+income_clean[,c('annual_income', 'annual_spending')]
+```
+
+
+
+#savings column
+```{r}
+
+income_clean<- income_clean %>%
+  mutate(savings = annual_income - annual_spending)
+
+tail(income_clean,10)
+```
+
+
+#spending_ratio
+```{r}
+income_clean <- income_clean %>%
+  mutate(
+    spending_ratio = pmin(annual_spending / annual_income, 1),  # Cap at 1
+    financial_stability_score = 
+      (annual_income / max(annual_income, na.rm = TRUE)) * 0.4 +
+      (credit_score / max(credit_score, na.rm = TRUE)) * 0.4 +
+      (1 - spending_ratio) * 0.2
+  ) %>%
+  mutate(
+    financial_stability_score = pmin(pmax(financial_stability_score, 0), 1) 
+  )
+```
+
+
+
+
+
+#Phase 3: Exploratory Data Analysis 1.Univariate Analysis : Histograms:annual_spending
+```{r}
+ggplot(income, aes(x = annual_spending)) +
+  geom_histogram(aes(y = ..density..), binwidth = 3000,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Annual Spending Distribution with Density", x = "Annual Spending", y = "Density") +
+  theme_minimal()
+```
+key insight: majority annual spending is between 10000 and 20000.
+
+
+
+
+#Phase 3: Exploratory Data Analysis 1.Univariate Analysis : Histograms:annual_income
+```{r}
+ggplot(income, aes(x = annual_income)) +
+  geom_histogram(aes(y = ..density..), binwidth = 3000,
+                 fill = "purple", color = "black") +
+  geom_density(color = "red", size = 1) +
+  labs(title = "annual_income Distribution with Density", x = "annual_income", y = "Density") +
+  theme_minimal()
+```
+key insight:annual income of most people from sampled data falls  between 25,000 and 75000..
+
+
+
+#Phase 3: Exploratory Data Analysis 1.Univariate Analysis : Histograms:savings 
+```{r}
+hist(sort(income_clean$savings),
+     breaks = 30,
+     main = "savings Distribution (Sorted)",
+     xlab = "savings",
+     col = "steelblue",
+     border = "black")
+```
+
+key insight: total savings is between 20000 and 40000
+
+
+
+#loop barplot
+```{r}
+for(col in names(income)){barplot(table(income[[col]]),main=col,las=2)}
+```
+key insight; the most peolple sampled by the data set is 18yrs and the least were 68, age had a normal distribution with almost symetrical centre.
+more females than males were sampled
+bachelor was owned by most people and ohd the least people
+most people in the data set were employed
+more people were married 
+more than half the sample data had no chilren
+urban set up ismore popular
+
+
+
+
+
+
+#Gender Distribution",
+```{r}
+barplot(table(income_clean$gender),
+        main="Gender Distribution",
+        col="skyblue")
+```
+
+
+#Density Plot of Annual Income
+```{r}
+plot(density(income_clean$annual_income),
+     main="Density Plot of Annual Income",
+     xlab="Annual Income",
+     col="blue", lwd=2)
+```
+
+
+#Density Plot of annual_spending
+```{r}
+plot(density(income_clean$annual_spending),
+     main="Density Plot of Annual Spending",
+     xlab="Annual Spending",
+     col="purple", lwd=2)
+```
+
+
+#income vs spending
+```{r}
+ggplot(income_clean) +
+  geom_density(aes(x = annual_income, fill = "Income"), alpha = 0.4) +
+  geom_density(aes(x = annual_spending, fill = "Spending"), alpha = 0.4) +
+  labs(title = "Density: Annual Income vs Spending", x = "Amount") +
+  scale_fill_manual(values = c("Income" = "green", "Spending" = "purple")) +
+  theme_minimal()
+```
+
+
+
+
+#density plot of savings
+```{r}
+plot(density(income_clean$savings),
+     main="Density Plot of Savings",
+     xlab="Savings",
+     col="purple", lwd=2)
+```
+
+
+
+
+
+#Density Plot churnvs nonchurn
+```{r}
+plot(density(income_clean$annual_income[income_clean$churn=="No"]),
+     col="blue", lwd=2, main="Income Density by Churn", xlab="Annual Income")
+lines(density(income_clean$annual_income[income_clean$churn=="Yes"]), col="red", lwd=2)
+legend("topright", legend=c("No Churn","Churn"), col=c("blue","red"), lwd=2)
+```
+
+
+
+
+
+
+
+#Churn vs Gender frequency table
+```{r}
+table(income_clean$gender, income_clean$churn)
+```
+key insight:more females had churned account's
+
+
+
+
+#frequency table Region vs Payment Type
+```{r}
+table(income_clean$region, income_clean$payment_type)
+```
+key insight:settlers of both urban  and rural  prefer use of credit card while mobile money is the least popular on all the 3 setups 
+
+
+
+#frequency table Education vs Employment
+```{r}
+table(income_clean$education, income_clean$employment_status)
+```
+key insight:most unemployed people have bachelors
+10% (54/502*100)of those with phd are unemployed
+
+
+
+#2. Multivariate Analysis ; Boxplots: spending by region/employment 
+```{r}
+ggplot(income_clean, aes(x = region, y = annual_spending, fill = region)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Region", x = "Region", y = "Annual Spending") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+the average annual spending in different regions is close to same with surbuban having more outliers and rural the least
+
+
+
+#scatter plot of credit_score
+```{r}
+ggplot(income_clean, aes(x = annual_income, y = credit_score, color = churn)) +
+  geom_point(alpha = 0.6, size = 2) +
+  labs(title = "Income vs Credit Score by Churn",
+       x = "Annual Income",
+       y = "Credit Score") +
+  scale_color_manual(values = c("No" = "blue", "Yes" = "red")) +
+  theme_minimal()
+```
+
+key insight:credit score and churn are positively correlated
+
+
+
+
+```{r}
+tail(income_clean,10)
+```
+
+
+
+
+#heatmap of correlation
+```{r}
+#Select numeric columns
+income_numerical <- income_clean[, sapply(income_clean, is.numeric)]
+
+
+#Compute correlation matrix
+cor_matrix <- round(cor(income_numerical, use = "complete.obs"), 2)
+cor_matrix
+
+# Convert matrix to long format
+cor_data <- melt(cor_matrix)
+
+# Plot heatmap
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "yellow") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name = "Correlation") +
+  geom_text(aes(label = value), color = "black", size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Correlation Matrix Heatmap")
+```
+
+
+
+key insight:age has no correlation with annual income,annual spending and savings while it ha s a strong post-vie correlation with loyalty years and a weak positive correlation with credit score.
+
+loyalty years has no correlation with age has no correlation with annual income,annual spending and savings while it ha s a strong positive correlation with loyalty
+
+credit score a very strong positive correlation to annual income , then savings then annual spending  and a weak correlation to age ang negative correlation to spending to income ratio
+
+annual spending has a strong correlation with annual income , credit score and savings but no correlation to age and loyalty 
+
+
+
+#pairwise scatter plots
+```{r}
+pairs(income_numerical[, sapply(income_numerical,is.numeric)],
+      main='Pairwise Scatterplots')
+```
+
+
+
+#pairwise scatter plot of correlations
+```{r}
+
+ggpairs(income_numerical, 
+        title = "Pairwise Scatterplots & Correlations",
+        mapping = aes(color = income_clean$churn))
+```
+
+
+
+#Faceted plots-Spending vs Income Faceted by Region 
+```{r}
+ggplot(income_clean, aes(x = annual_income, y = annual_spending)) +
+  geom_point(alpha = 0.6, color = "blue") +
+  facet_wrap(~ region) +  # creates separate panels per region
+  labs(title = "Annual Spending vs Income by Region",
+       x = "Annual Income",
+       y = "Annual Spending") +
+  theme_minimal()
+```
+
+
+#Faceted plots- Region Faceted by Employment Status
+```{r}
+ggplot(income_clean, aes(x = annual_income, y = annual_spending)) +
+  geom_point(alpha = 0.6, color = "green") +
+  facet_wrap(~ employment_status) +
+  labs(title = "Annual Spending vs Income by Employment Status",
+       x = "Annual Income",
+       y = "Annual Spending") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+#Faceted Scatterplot by Churn
+```{r}
+ggplot(income_clean, aes(x = annual_income, y = credit_score)) +
+  geom_point(alpha = 0.6, aes(color = churn)) +
+  facet_wrap(~ churn) +
+  labs(title = "Income vs Credit Score by Churn",
+       x = "Annual Income",
+       y = "Credit Score") +
+  scale_color_manual(values = c("No" = "blue", "Yes" = "red")) +
+  theme_minimal()
+```
+
+
+
+
+#pending vs Income by Region & Employment Status
+```{r}
+ggplot(income_clean, aes(x = annual_income, y = annual_spending)) +
+  geom_point(alpha = 0.6, color = "purple") +
+  facet_grid(region ~ employment_status) +  # rows = region, columns = employment_status
+  labs(title = "Spending vs Income by Region & Employment Status",
+       x = "Annual Income",
+       y = "Annual Spending") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+#Phase 4: Descriptive Statistics & Inference 1) Summary Statistics Compute:  Mean, Median, SD, IQR of spending across groups ;region
+```{r}
+income_clean %>%
+  group_by(region) %>%
+  summarise(
+    count = n(),
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    median_spending = median(annual_spending, na.rm = TRUE),
+    sd_spending = sd(annual_spending, na.rm = TRUE),
+    iqr_spending = IQR(annual_spending, na.rm = TRUE)
+  )
+```
+
+
+
+#Summary by Employment Status
+```{r}
+income_clean %>%
+  group_by(employment_status) %>%
+  summarise(
+    count = n(),
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    median_spending = median(annual_spending, na.rm = TRUE),
+    sd_spending = sd(annual_spending, na.rm = TRUE),
+    iqr_spending = IQR(annual_spending, na.rm = TRUE)
+  )
+```
+
+
+
+#Summary by Churn
+```{r}
+income_clean %>%
+  group_by(churn) %>%
+  summarise(
+    count = n(),
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    median_spending = median(annual_spending, na.rm = TRUE),
+    sd_spending = sd(annual_spending, na.rm = TRUE),
+    iqr_spending = IQR(annual_spending, na.rm = TRUE)
+  )
+```
+
+
+
+#Multiple Grouping (Region + Employment Status)
+```{r}
+income_clean %>%
+  group_by(region, employment_status) %>%
+  summarise(
+    count = n(),
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    median_spending = median(annual_spending, na.rm = TRUE),
+    sd_spending = sd(annual_spending, na.rm = TRUE),
+    iqr_spending = IQR(annual_spending, na.rm = TRUE)
+  )
+```
+
+
+
+#2. Confidence Intervals :Construct 95% confidence intervals
+```{r}
+compute_ci <- function(x, conf = 0.95) {
+  n <- sum(!is.na(x))            # sample size
+  mean_x <- mean(x, na.rm = TRUE) # mean
+  sd_x <- sd(x, na.rm = TRUE)     # standard deviation
+  error <- qt((1 + conf)/2, df = n - 1) * sd_x / sqrt(n) # t-multiplier
+  lower <- mean_x - error
+  upper <- mean_x + error
+  return(c(lower = lower, upper = upper))
+}
+```
+
+
+
+
+#Confidence Interval by Region
+```{r}
+income_clean %>%
+  group_by(region) %>%
+  summarise(
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    ci_lower = compute_ci(annual_spending)["lower"],
+    ci_upper = compute_ci(annual_spending)["upper"]
+  )
+```
+
+
+
+#Confidence Interval by Employment Status
+```{r}
+income_clean %>%
+  group_by(employment_status) %>%
+  summarise(
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    ci_lower = compute_ci(annual_spending)["lower"],
+    ci_upper = compute_ci(annual_spending)["upper"]
+  )
+```
+
+
+
+
+#5. Confidence Interval by Churn
+```{r}
+income_clean %>%
+  group_by(churn) %>%
+  summarise(
+    mean_spending = mean(annual_spending, na.rm = TRUE),
+    ci_lower = compute_ci(annual_spending)["lower"],
+    ci_upper = compute_ci(annual_spending)["upper"]
+  )
+```
+
+
+
+#Optional: Visualize with ggplot2
+```{r}
+ggplot(income_clean, aes(x = region, y = annual_spending)) +
+  stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = 0.2) +
+  labs(title = "95% Confidence Intervals of Annual Spending by Region",
+       x = "Region", y = "Annual Spending") +
+  theme_minimal()
+```
+
+
+
+
+
+H₀ (Null Hypothesis): The mean annual spending of customers who churn = mean annual spending of customers who do not churn
+H₁ (Alternative Hypothesis): The mean annual spending of customers who churn ≠ mean annual spending of customers who do not churn
+
+Numeric variable: annual_spending
+Grouping variable (two categories): churn ("Yes" / "No")
+Independent samples → yes, churn groups are independent
+Independent samples → yes, churn groups are independent
+Normality → check with Shapiro-Wilk test
+Equal variances → check with F-test or var.test
+Normality check
+If p > 0.05 → roughly normal.
+
+
+
+#latex statistical table1
+```{r}
+# 1. Install and load required package
+if (!require("xtable")) install.packages("xtable")
+library(xtable)
+
+# 2. Create the 'reports' directory if it doesn't exist
+# This fixes the "No such file or directory" error
+if (!dir.exists("reports")) {
+  dir.create("reports")
+  message("Created 'reports' directory successfully.")
+} else {
+  message("'reports' directory already exists.")
+}
+
+# 3. Prepare your summary data (Example from Phase 4)
+summary_table <- income_clean %>%
+  group_by(region) %>%
+  summarise(
+    N = n(),
+    Mean = mean(annual_spending, na.rm = TRUE),
+    SD = sd(annual_spending, na.rm = TRUE),
+    Median = median(annual_spending, na.rm = TRUE),
+    `95% CI Lower` = compute_ci(annual_spending)["lower"],
+    `95% CI Upper` = compute_ci(annual_spending)["upper"]
+  )
+
+# 4. Generate and save the LaTeX table
+# Now this will work because the folder exists
+print(xtable(summary_table, 
+             caption = "Table 1: Annual Spending by Region", 
+             label = "tab:spending_region"), 
+      file = "reports/spending_by_region.tex",
+      include.rownames = FALSE,
+      sanitize.text.function = function(x) x) # Prevents LaTeX errors with special chars
+
+message("LaTeX table saved to: reports/spending_by_region.tex")
+```
+
+
+
+#remove scientific notation
+```{r}
+options(sciepen=999)
+```
+
+
+
+#fit model
+```{r}
+# Fit model
+model_simple <- lm(annual_spending ~ annual_income, data = income)
+
+# Summary
+summary(model_simple)
+```
+
+
+#visulize missing data pattern
+```{r}
+# Load required libraries (Ensure this runs before plotting)
+library(ggplot2)
+library(naniar)  # Recommended for missing data visuals
+
+# Missing Data Visualization
+gg_miss_var(income) +
+  labs(
+    title = "Missing Data Pattern", 
+    caption = "Figure 1: No missing values detected in dataset (n=10,000)"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+#Phase 5: Hypothesis Testing :Parametric Tests :Two-sample t-test
+#Normality check
+```{r}
+shapiro.test(income_clean$annual_spending[income_clean$churn == "No"])
+shapiro.test(income_clean$annual_spending[income_clean$churn == "Yes"])
+
+```
+shapiro test fails as my dataset has a 10,000 sample size thus we use kolmogorov-smirnov test
+
+
+```{r}
+# Assumption Check Summary
+assumption_table <- data.frame(
+  Test = c("Normality (Shapiro)", "Equal Variance (Levene)", 
+           "Independence", "Sample Size"),
+  Variable = c("annual_spending", "annual_spending", 
+               "all variables", "n=10,000"),
+  Result = c("Failed (n>1000)", "Passed (p=0.65)", 
+             "Assumed", "Adequate"),
+  Action = c("Use non-parametric", "Use parametric", 
+             "N/A", "N/A")
+)
+
+print(assumption_table)
+```
+
+
+
+
+
+#kolmogorov-smirnov test
+```{r}
+hist(income$annual_spending)
+qqnorm(income$annual_spending)
+qqline(income$annual_spending)
+```
+
+
+
+H0:The mean annual spending of customers who did not churn is equal to the mean annual spending of customers who churned.
+H1:The mean annual spending of customers who did not churn is not equal to the mean annual spending of customers who churned.
+
+
+#Equal variance check
+```{r}
+var.test(annual_spending ~ churn, data = income_clean)
+```
+p value is 0.6489 which is greater than 0.05- fail to reject null hypothesis
+thus we assume equal variance in churn and annual spending
+The mean annual spending of customers who did not churn (No = 15,375.24) is significantly higher than those who churned (Yes = 13,904.21).Confidence Interval: 857.24 – 2,084.83 → The true mean difference is positive.
+
+
+
+#Visualizations for Variance Comparison
+```{r}
+ggplot(income_clean, aes(x = churn, y = annual_spending, fill = churn)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Churn Status",
+       x = "Churn",
+       y = "Annual Spending") +
+  theme_minimal()
+```
+
+
+H0:The mean annual spending of customers who did not churn is equal to the mean annual spending of customers who churned.
+H1:The mean annual spending of customers who did not churn is not equal to the mean annual spending of customers who churned.
+
+
+#3. Two-sample t-test-Assuming equal variance
+```{r}
+t.test(annual_spending ~ churn, data = income_clean, var.equal = TRUE)
+```
+p-value = 2.664e-06 < 0.05 → Reject H₀
+Interpretation: The mean annual spending of customers who did not churn (No = 15,375.24) is significantly higher than those who churned (Yes = 13,904.21).
+Confidence Interval: 857.24 – 2,084.83 → The true mean difference is positive.
+
+
+
+#Welch’s t-test (default, unequal variance)
+```{r}
+t.test(annual_spending ~ churn, data = income_clean)
+
+```
+ 
+ p-value = 2.389e-06 < 0.05 → Reject H₀
+There is a statistically significant difference in mean annual spending between churned and non-churned customers.
+Customers who did not churn have a significantly higher mean annual spending (~15,375) compared to those who churned (~13,904).
+The 95% confidence interval (862–2,079) indicates that the true mean difference is positive, confirming that higher spending is associated with non-churning.
+
+
+
+#Visualizing group differences
+```{r}
+ggplot(income_clean, aes(x = churn, y = annual_spending, fill = churn)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Churn",
+       x = "Churn", y = "Annual Spending") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+# ANOVA Scenario
+H₀: All group means are equal
+H₁: At least one group mean is different
+
+#2. Check assumptions;ANOVA assumptions (parametric):
+Independent samples → yes, regions are independent
+Normality within each group → check with Shapiro-Wilk
+Homogeneity of variances → check with Levene’s test
+Normality by group
+
+
+
+
+
+
+
+
+H₀:The variances of the groups are equal (homogeneous).
+H₁:At least one group has a variance that is different.
+
+#Homogeneity of variances;LeveneTest
+```{r}
+leveneTest(annual_spending ~ region, data = income_clean)
+```
+p > 0.05 → variances are equal
+The variances across the groups are not significantly different.
+The assumption of homogeneity of variance is satisfied, meaning the groups have similar spread.
+This allows you to safely proceed with ANOVA or other tests that assume equal variances.
+
+
+
+
+H0:The mean annual spending is equal across all regions.
+H1:At least one region has a different mean annual spending.
+
+#3. Perform ANOVA
+```{r}
+anova_model <- aov(annual_spending ~ region, data = income_clean)
+summary(anova_model)
+```
+p-value = 0.0804 > 0.05 → Fail to reject H₀
+There is no statistically significant difference in mean annual spending across regions at the 5% significance level.
+Although the mean spending varies slightly between regions, the differences are not large enough to be considered statistically significant.Customers’ annual spending is roughly similar across the regions.
+
+
+
+
+
+#Post-hoc test (Tukey HSD);If ANOVA is significant, do Tukey Honestly Significant Difference to see which pairs differ:
+```{r}
+TukeyHSD(anova_model)
+```
+
+
+# Visualize with ggplot2
+```{r}
+ggplot(income_clean, aes(x = region, y = annual_spending, fill = region)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Region (ANOVA)", x = "Region", y = "Annual Spending") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+Boxplots make it easy to see which groups are higher/lower
+Customers in different regions (Rural, Suburban, Urban) spend roughly the same amount annually, and no region pair shows a significant difference.
+
+
+
+
+
+#Optional: Post-hoc Visualization
+```{r}
+tukey <- glht(anova_model, linfct = mcp(region = "Tukey"))
+summary(tukey)
+confint(tukey)
+```
+
+Gives confidence intervals for pairwise differences
+
+
+```{r}
+library(pwr)
+
+# Post-hoc power analysis for t-test
+pwr.t.test(d = 0.5, n = 5000, sig.level = 0.05, type = "two.sample")
+
+# This shows your study has >99% power to detect medium effects
+```
+
+
+
+H0:The distributions of annual_spending are the same for customers who churned and those who did not.
+H1:The distributions (or medians) of annual_spending are different between churned and non-churned customers.
+
+
+
+#Mann-Whitney U Test
+```{r}
+wilcox.test(annual_spending ~ churn, data = income_clean)
+```
+p-value = 7.991e-07 < 0.05 → Reject H₀
+There is a statistically significant difference in the distribution of annual spending between customers who churned and those who did not.Customers who did not churn tend to have higher annual spending than those who churned.
+This confirms the t-test result, but using a non-parametric method that does not assume normality.
+
+
+
+#Visualization chun by annual spending
+```{r}
+ggplot(income_clean, aes(x = churn, y = annual_spending, fill = churn)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Churn Status (Wilcoxon Test)",
+       x = "Churn",
+       y = "Annual Spending") +
+  theme_minimal()
+
+```
+
+
+
+H0:The distributions of annual_spending are the same across all regions (Rural, Suburban, Urban).
+H1:At least one region has a different distribution or median annual spending.
+
+
+#Kruskal-Wallis Test
+```{r}
+kruskal.test(annual_spending ~ region, data = income_clean)
+```
+p-value = 0.07863 > 0.05 → Fail to reject H₀
+There is no statistically significant difference in the distribution or median of annual spending across regions at the 5% significance level.
+Customers’ annual spending is roughly similar in Rural, Suburban, and Urban regions.
+Any observed differences in medians are not large enough to be statistically significant.
+Kruskal-Wallis → η² = (H - k + 1) / (n - k)
+
+
+#Annual Spending by Region Visualization BOXPLOT
+```{r}
+ggplot(income_clean, aes(x = region, y = annual_spending, fill = region)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Region (Kruskal-Wallis Test)",
+       x = "Region",
+       y = "Annual Spending") +
+  theme_minimal()
+```
+
+H0:The distributions/median overall spending are the same across all regions (Rural, Suburban, Urban).
+H1:At least one group has a different distribution or median
+
+
+#dunntest
+```{r}
+dunn.test(income_clean$annual_spending, income_clean$region, method = "bonferroni")
+```
+p-value = 0.08 > 0.05 → Fail to reject H₀
+There is no statistically significant difference in the median of annual_spending across all three regions.
+ie annual_spending is similar across regions.
+
+
+Interpretation of Dunn’s Test:
+Only Urban vs Suburban shows a statistically significant difference (p = 0.0362 < 0.05), after Bonferroni adjustment.
+Other pairs (Suburban vs Rural, Urban vs Rural) are not significantly different.
+
+Even though the overall Kruskal-Wallis test was not significant, the pairwise comparison highlights a specific difference between Urban and Suburban.This is common in non-parametric tests: overall test may not detect all differences, but post-hoc can reveal specific pairs that differ.
+
+Dunn’s test is a post-hoc pairwise comparison used after a significant Kruskal-Wallis test. Its assumptions include:
+Independent observations
+Ordinal or continuous outcome
+Non-parametric
+Kruskal-Wallis prerequisite 
+Multiple comparisons correction
+Ideally, perform Dunn’s test after a significant Kruskal-Wallis test, because it tests pairwise differences in medians.
+Adjust p-values to control family-wise error (e.g., Bonferroni, Holm).
+
+Wilcoxon / Dunn → r = Z / √N
+
+
+H0:The distribution (median) of annual spending is the same for males and females.
+H1:The distribution (median) of annual spending is different for males and females.
+
+
+#Wilcoxon Signed-Rank Test
+```{r}
+# Example assuming two paired columns: spending_2022 and spending_2023
+wilcox.test(annual_spending ~ gender, data = income)
+```
+Assumptions
+Observations are independent between groups.
+The dependent variable (annual_spending) is at least ordinal (continuous works).
+The test is non-parametric, so it does not assume normality.
+
+RESULT: W = 12593887, p-value = 0.4066  :p-value = 0.4066 > 0.05 → Fail to reject H₀
+
+Effect Size:For Wilcoxon rank-sum test, rank-biserial correlation (r) is commonly used:Wilcoxon / Dunn → r = Z / √N
+Z = standardized test statistic (can be obtained from W),N = total sample size
+Since p > 0.05, the effect size is very small or negligible, meaning gender has little to no impact on annual spending.
+
+Business Interpretation:There is no statistically significant difference in annual spending between male and female customers.
+From a business perspective: gender alone does not influence spending behavior, so marketing, promotions, and targeting strategies should not be differentiated purely by gender 
+
+
+#boxplot gender vs annual spending
+```{r}
+ggplot(income_clean, aes(x = gender, y = annual_spending, fill = gender)) +
+  geom_boxplot() +
+  labs(title = "Annual Spending by Gender",
+       x = "Gender",
+       y = "Annual Spending") +
+  theme_minimal()
+```
+
+The boxplot visually confirms that medians and distributions of spending are similar for males and females.
+
+
+
+
+
+
+H0:Payment type is independent of the churn
+H1:Payment type is dependent of the churn
+
+#Chi-Square Test of Independence
+```{r}
+# Create contingency table
+tbl <- table(income_clean$gender, income_clean$churn)
+
+# Chi-square test
+chisq.test(tbl)
+
+
+chisq.test(table(income_clean$payment_type, income_clean$churn))
+```
+Assumptions
+Observations are independent.
+Variables are categorical.
+Expected frequency in each cell is ≥ 5 (Yates’ correction is applied for 2×2 tables to adjust for small counts).
+
+result:p-value = 0.3511 > 0.05 → Fail to reject H₀
+Effect SizeCramér’s V can be used for effect size
+With p > 0.05 and low X², the association is negligible.
+There is no statistically significant association between churn and payment type.
+Business-wise, payment type does not depend churn
+
+
+
+#effect size
+```{r}
+# Add these calculations:
+
+# For t-tests: Cohen's d
+cohens_d <- function(x, y) {
+  m1 <- mean(x); m2 <- mean(y)
+  sd1 <- sd(x); sd2 <- sd(y)
+  n1 <- length(x); n2 <- length(y)
+  pooled_sd <- sqrt(((n1-1)*sd1^2 + (n2-1)*sd2^2) / (n1+n2-2))
+  (m1 - m2) / pooled_sd
+}
+
+# For ANOVA: Eta-squared
+eta_squared <- function(aov_model) {
+  summary(aov_model)[[1]]["region", "Sum Sq"] / 
+    sum(summary(aov_model)[[1]][, "Sum Sq"])
+}
+
+# For Chi-square: Cramér's V
+cramers_v <- function(chisq_result, n) {
+  sqrt(chisq_result$statistic / (n * (min(dim(chisq_result$observed)) - 1)))
+}
+```
+
+
+
+
+
+#Phase 6: Regression Modeling 1.Simple Linear Regression 
+
+```{r}
+# Simple linear regression
+slr_model <- lm(annual_spending ~ annual_income, data = income_clean)
+
+# Summary of the model
+summary(slr_model)
+```
+annual_spending = 551.4 + (0.3364 × annual_income)
+ey Insights:
+Strong Income-Spending Relationship: Income explains 70% of spending variation—this is unusually high and suggests your customers' spending is heavily income-driven
+
+Marginal Propensity to Spend: The coefficient (0.3364) means customers spend about 34% of additional income. This is your "marginal propensity to spend" metric
+
+Baseline Spending: Even with zero income (theoretically), customers would spend $551 (though this might reflect students, retired, or data quirks)
+
+
+#Evaluate:  R² 
+```{r}
+summary(slr_model)$r.squared
+summary(slr_model)$adj.r.squared
+```
+R² = 0.7012 means:
+
+"The simple linear regression model shows that annual income alone explains approximately 70% of the variance in customer annual spending. This indicates a strong positive linear relationship between income and spending."
+
+
+# Residual diagnostics 
+```{r}
+par(mfrow = c(2,2))
+plot(slr_model)
+```
+Residual Standard Error = 5127
+
+The typical prediction error is about $5,127
+
+This means predictions are off by about ±$5,000 on average
+
+. F-statistic = 23,470 on 1 and 9998 DF, p < 2.2e-16
+Tests whether the model as a whole is significant
+
+Very large F-value + tiny p-value → model is highly significant
+
+Confirms that annual_income is a meaningful predictor
+
+
+#2. Multiple Regression 
+```{r}
+# Correct multiple regression using your actual column names
+lm_model <- lm(annual_spending ~ annual_income + credit_score + loyalty_years +  
+                 age + region + employment_status + online_shopper,
+               data = income_clean)
+
+# View summary of the model
+summary(lm_model)
+```
+
+Model Comparison:Multiple regression adds no meaningful improvement over simple regression.R² improved by only 0.016%, while adjusted R² decreased.Suggests additional variables are unnecessary
+
+Variable Importance:Annual income is the ONLY significant predictor (p < 0.001)
+All other variables (credit_score, loyalty_years, age, region, employment_status, online_shopper) are not statistically significant (p > 0.05)
+
+Practical Implication:Customer spending behavior is primarily determined by income.Demographic and behavioral factors don't significantly affect spending patterns.For prediction purposes, annual_income alone is sufficient
+
+Methodological Note:The non-significant findings might indicate:These variables truly don't affect spending (most likely)
+
+Multicollinearity issues (unlikely given only one strong predictor)
+
+Need to check for interaction effects (e.g., income × region)
+
+
+#LASSO Regression (Alternative)
+```{r}
+library(glmnet)
+
+# Prepare data: dummy encode categorical variables
+X <- model.matrix(annual_spending ~ annual_income + credit_score + loyalty_years +
+                    age + region + employment_status + online_shopper, data = income_clean)[,-1]
+y <- income_clean$annual_spending
+
+# Fit LASSO
+lasso_model <- cv.glmnet(X, y, alpha = 1)  # alpha=1 for LASSO
+coef(lasso_model, s = "lambda.min")
+```
+
+Key Insights from LASSO
+1. Only Two Variables Survived
+annual_income: Coefficient = 0.3344,online_shopperYes: Coefficient = 42.54
+All 8 other variables were eliminated
+
+2. Interpretation of Selected Variables:Annual_Income (0.3344):For each $1 increase in income → spending increases by $0.33
+
+Very close to your simple model (0.3364),Confirms income is the dominant predictor
+
+Online_ShopperYes (42.54):Online shoppers spend $42.54 MORE than non-online shoppers.This is a much smaller effect than in your full model (143.1)
+
+LASSO shrank this coefficient because its contribution is minimal
+
+3. Why Online Shopping Survived Even though online_shopper wasn't statistically significant in your multiple regression (p = 0.173), LASSO kept it because:
+It provides some predictive value (though minimal),The penalty (lambda) selected by cross-validation allowed it to remain,Its effect size is small but not zero
+
+
+#Variable selection:  Stepwise or LASSO  Check:  Multicollinearity (VIF)
+```{r}
+# 1. Install and Load the 'car' package
+if (!require("car")) {
+  install.packages("car")
+  library(car)
+} else {
+  library(car)
+}
+
+# 2. Calculate VIF
+# Note: vif() returns a matrix if your model has factor variables (like region, employment_status)
+vif_output <- vif(lm_model)
+
+# 3. Robustly Extract Values (Handles both Vector and Matrix output)
+if (is.matrix(vif_output)) {
+  # Extract GVIF column and row names for factor variables
+  vif_values <- vif_output[, "GVIF"]
+  variable_names <- rownames(vif_output)
+} else {
+  # Simple vector for numeric-only models
+  vif_values <- vif_output
+  variable_names <- names(vif_output)
+}
+
+# 4. Create Diagnostic Table
+vif_table <- data.frame(
+  Variable = variable_names,
+  VIF = round(vif_values, 2),
+  Concern = ifelse(vif_values > 5, "HIGH", 
+            ifelse(vif_values > 2, "MODERATE", "OK"))
+)
+
+# 5. Display Results
+print(vif_table)
+
+# 6. Interpretation for Phase 6 Deliverable
+cat("\n=== Multicollinearity Diagnosis ===\n")
+if (all(vif_values < 5)) {
+  cat("✅ PASS: All VIF values < 5. No severe multicollinearity detected.\n")
+} else {
+  cat("⚠️ WARNING: Some VIF values > 5. Consider removing correlated variables.\n")
+}
+```
+
+#Check correlation between suspicious variables
+```{r}
+# Check correlation between suspicious variables
+cor(income_clean$annual_income, income_clean$credit_score, use = "complete.obs")
+
+# Refit model WITHOUT high-VIF variables
+lm_model_reduced <- lm(annual_spending ~ annual_income + loyalty_years + 
+                         age + region + employment_status,
+                       data = income_clean)
+
+# Compare VIF
+vif(lm_model_reduced)
+
+# Compare Model Fit
+data.frame(
+  Model = c("Full Model", "Reduced Model"),
+  R_Squared = c(summary(lm_model)$r.squared, summary(lm_model_reduced)$r.squared),
+  Adj_R_Squared = c(summary(lm_model)$adj.r.squared, summary(lm_model_reduced)$adj.r.squared),
+  AIC = c(AIC(lm_model), AIC(lm_model_reduced))
+)
+```
+
+
+
+```{r}
+library(glmnet)
+library(ggplot2)
+# Prepare data: dummy encode categorical variables
+X <- model.matrix(annual_spending ~ annual_income + credit_score + loyalty_years +
+                    age + region + employment_status + online_shopper, data = income_clean)[,-1]
+y <- income_clean$annual_spending
+
+# Fit LASSO
+lasso_model <- cv.glmnet(X, y, alpha = 1)  # alpha=1 for LASSO
+coef(lasso_model, s = "lambda.min")
+# Check correlation between age and loyalty_years
+cor(income_clean$age, income_clean$loyalty_years, use = "complete.obs")
+
+# Visualize the relationship
+ggplot(income_clean, aes(x = age, y = loyalty_years)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relationship Between Age and Loyalty Years",
+       x = "Age", y = "Loyalty Years")
+
+# Check the pattern
+summary(lm(loyalty_years ~ age, data = income_clean))
+
+```
+
+
+
+
+
+
+#Residual Diagnostics (Multiple Regression)
+```{r}
+# Set up 2x2 plotting area
+par(mfrow = c(2,2))
+
+# Plot residual diagnostics for your multiple regression model
+plot(lm_model)
+```
+
+
+
+#Visualize Model Fit
+```{r}
+# Actual vs Predicted for multiple regression
+income_clean$predicted <- predict(lm_model)
+
+ggplot(income_clean, aes(x = predicted, y = annual_spending)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Actual vs Predicted Annual Spending",
+       x = "Predicted",
+       y = "Actual") +
+  theme_minimal()
+```
+
+
+
+
+#barplot visulalization
+```{r}
+
+# 2. Extract coefficients at lambda.min
+lasso_coef <- coef(lasso_model, s = "lambda.min")
+
+# 3. Convert to data frame (FIXED)
+coef_df <- as.matrix(lasso_coef)[-1, , drop = FALSE] %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column(var = "variable") %>%
+  rename(coefficient = 2)  # Column 2 is the coefficient (column 1 is now 'variable')
+
+# 4. Sort by coefficient (for better visual order)
+coef_df <- coef_df %>%
+  arrange(coefficient) %>%
+  mutate(variable = factor(variable, levels = unique(variable)))
+
+# 5. Create bar plot
+ggplot(coef_df, aes(x = variable, y = coefficient, fill = coefficient != 0)) +
+  geom_col() +
+  scale_fill_manual(values = c("grey80", "steelblue"), 
+                    labels = c("Zero (excluded)", "Non‑zero (selected)"),
+                    name = "LASSO selection") +
+  coord_flip() +
+  labs(
+    title = "LASSO Regression Coefficients (lambda.min)",
+    subtitle = "Variables with non-zero coefficients retained in final model",
+    x = "Predictor",
+    y = "Coefficient Estimate",
+    caption = "Figure: LASSO variable selection for annual spending prediction"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+
+#multicollinearity check
+```{r}
+library(car)      
+library(tidyverse)
+# Check if lm_model exists
+exists("lm_model")  # Should return TRUE
+
+# Check its class
+class(lm_model)     # Should include "lm"
+
+# View model summary
+summary(lm_model)
+# Add VIF interpretation
+vif_values <- vif(lm_model)
+data.frame(
+  Variable = names(vif_values),
+  VIF = vif_values,
+  Concern = ifelse(vif_values > 5, "HIGH", 
+            ifelse(vif_values > 2, "MODERATE", "OK"))
+)
+
+# Rule of thumb: VIF > 5 indicates problematic multicollinearity
+```
+
+
+
+#model comparison
+```{r}
+# Compare all models
+model_comparison <- data.frame(
+  Model = c("Simple LR", "Multiple LR", "LASSO"),
+  R_Squared = c(
+    summary(slr_model)$r.squared,
+    summary(lm_model)$r.squared,
+    cor(income_clean$annual_spending, predict(lasso_model, newx = X))^2
+  ),
+  Adj_R_Squared = c(
+    summary(slr_model)$adj.r.squared,
+    summary(lm_model)$adj.r.squared,
+    NA
+  ),
+  AIC = c(AIC(slr_model), AIC(lm_model), NA),
+  BIC = c(BIC(slr_model), BIC(lm_model), NA)
+)
+
+print(model_comparison)
+```
+
+
+
+
+
+
+EXTRA
+---
+title: "TESTING MY ASSUMPTIONS"
+author: "KIBIDI"
+date: "2026-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+male average income is higher than that of females, customers with higher education (phd,masters,BSC earn high than those with diplomas ,highs cool,number of children influence the annual spending, single s with children have higHer annual income, unemployment leads to churn, females do more online shopping than males, credit score is related to education level,the more educated a female is the less need marriage ,most people over 60 prefer cash payment to the other alternatives,annual income of married customers was more than those of single,most married customers in the suburb have more than one child,suburban has more married customers than single,education level affect payment type help me codes to test the assumptions
+
+
+
+
+H0:There is no difference in mean annual income between males and females.
+H1:There is a difference in mean annual income between males and females.
+
+#Male average income vs female
+```{r}
+# Ensure gender is a factor
+income_clean$gender <- as.factor(income_clean$gender)
+
+# t-test for difference in average income by gender
+t.test(annual_income ~ gender, data = income_clean)
+```
+There is no statistically significant difference in annual income between males and females (t = 0.6783, p = 0.4976). Although females have a slightly higher mean income than males, this difference is not statistically significant, and may be due to random variation in the data.
+
+
+
+
+
+
+H0:There is no difference in mean annual income across all education levels.
+H1:There is at least one difference in mean annual income between education levels.
+
+
+# Education level vs income
+```{r}
+# Convert education to factor
+income_clean$education <- as.factor(income_clean$education)
+
+#ANOVA: Does income differ by education level?
+anova_income_edu <- aov(annual_income ~ education, data = income_clean)
+summary(anova_income_edu)
+
+
+# post-hoc test
+TukeyHSD(anova_income_edu)
+```
+ 
+ ANOVA Results:F(4, 9995) = 1499, p-value < 2e-16
+Since the p-value is much smaller than 0.05,we reject the null hypothesis
+
+There is a statistically significant difference in mean annual income across education levels.
+
+Education level has a significant effect on annual income. This means income varies depending on whether a person has a High School, Diploma, Bachelor’s, Master’s, or PhD qualification.
+ 
+ 
+ Turkey Post-Hoc Interpretation-This tells you which specific groups differ.
+Higher education = higher income,  There is a clear upward trend:The more educated a person is, the higher their income.
+
+This strongly supports your earlier claim:“customers with higher education earn more”
+
+
+
+#Visualization on income per education level
+```{r}
+ggplot(income_clean, aes(x = education, y = annual_income, fill = education)) +
+  geom_boxplot() +
+  labs(title = "Annual Income by Education Level",
+       x = "Education Level",
+       y = "Annual Income") +
+  theme_minimal()
+```
+
+
+
+
+H0:There is no relationship between number of children and annual spending.
+H1:There is a relationship between number of children and annual spending
+
+
+# Number of children vs annual spending
+```{r}
+# Correlation
+cor(income_clean$number_of_children, income_clean$annual_spending)
+
+
+# Or linear regression
+lm_children_spending <- lm(annual_spending ~ number_of_children, data = income_clean)
+summary(lm_children_spending)
+```
+
+
+Coefficient (slope):number_of_children = 7.61
+For each additional child, spending increases by only 7.61 units — which is extremely small.
+
+p = 0.909-This is much greater than 0.05; not statistically significant
+R² = 0.00000132 (~0):Number of children explains almost none (0%) of the variation in spending
+🔹 F-statistic p-value= 0.9085, Confirms the model is not significant overall
+H₀: No relationship
+H₁: Positive relationship
+Since p > 0.05:fail to reject H₀, reject H₁
+
+There is no statistically significant relationship between the number of children and annual spending (β = 7.61, p = 0.909). This indicates that the number of children does not significantly influence annual spending in this dataset.
+
+There is no meaningful relationship between number of children and spending.
+
+
+
+#Visualization (to confirm There is no meaningful relationship between number of children and spending.
+```{r}
+ggplot(income_clean, aes(x = number_of_children, y = annual_spending)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  theme_minimal() +
+  labs(title = "Number of Children vs Annual Spending")
+```
+
+
+
+
+H₀: There is no difference in mean annual income between customers with children and those without.
+H₁: There is a difference in mean annual income between customers with children and those without.
+
+
+#marital status, no of children , income
+```{r}
+income_clean$single_with_children <- ifelse(income_clean$marital_status == "Single" & income_clean$number_of_children > 0, "Yes", "No")
+
+table(income_clean$single_with_children)
+
+
+```
+the results show only one group (“No”), meaning there are no observations for “single with children” in the dataset (or they were not correctly captured). Therefore, it is not possible to compare mean annual income across groups or test the hypothesis.
+
+
+
+
+
+H₀: The proportion of single females with children = proportion of single males with children
+H₁: The proportion of single females with children ≠ proportion of single males with children
+
+#Gender and number of children
+```{r}
+# Create a table
+table_gender_children <- table(income_clean$gender, income_clean$single_with_children)
+
+# Chi-square test
+chisq.test(table_gender_children)
+```
+Chi-squared Test Result ;The p-value is much smaller than 0.05 → reject H₀
+This means there is a statistically significant difference in proportions.
+There are significantly more single females with children than single males with children in the dataset.
+
+
+
+#visualization single females with children vs single males with children
+```{r}
+library(ggplot2)
+
+ggplot(income_clean, aes(x = gender, fill = single_with_children)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Number of Single Females vs Males with Children",
+       x = "Gender", y = "Count") +
+  theme_minimal()
+```
+
+
+
+
+
+
+# Single status with children vs annual income
+```{r}
+# Create a new variable: single with children
+income_clean$single_with_children <- ifelse(income_clean$marital_status == "Single" & income_clean$number_of_children > 0, "Yes", "No")
+
+# Average income by group
+aggregate(annual_income ~ single_with_children, data = income_clean, mean)
+
+```
+
+
+H₀: Churn is independent of employment status-There is no association between being unemployed and churning.
+H₁: Churn is dependent on employment status-Unemployed customers are more likely to churn than employed customers.
+
+
+
+# Unemployment leads to churn
+```{r}
+income_clean$employment_status <- as.factor(income_clean$employment_status)
+income_clean$churn <- as.factor(income_clean$churn)
+
+
+# Chi-square test
+table_emp_churn <- table(income_clean$employment_status, income_clean$churn)
+chisq.test(table_emp_churn)
+```
+The p-value < 0.05, so we reject H₀
+There is a statistically significant association between employment status and churn.
+Churn is not independent of employment status, meaning employment status influences churn.
+Specifically, it supports the claim that unemployed customers are more likely to churn than employed customers.
+
+
+
+#visualize employment status vs churn
+```{r}
+
+ggplot(income_clean, aes(x = employment_status, fill = churn)) +
+  geom_bar(position = "fill") +  # shows proportion of churn per employment status
+  labs(title = "Churn by Employment Status",
+       x = "Employment Status", y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+
+
+H₀ : Online shopping is independent of gender
+H₁ : Online shopping is dependent on gender
+
+
+# Females do more online shopping than males
+```{r}
+income_clean$online_shopper <- as.factor(income_clean$online_shopper)
+
+table_gender_online <- table(income_clean$gender, income_clean$online_shopper)
+chisq.test(table_gender_online)
+```
+The p-value (0.6685) > 0.05, so we fail to reject H₀
+There is no statistically significant association between gender and online shopping in your dataset.
+Although you may have observed more females shopping online in raw counts, this difference is not statistically significant — gender does not appear to influence online shopping in this dataset.
+
+
+
+#visualize online shopping vs gender
+```{r}
+
+ggplot(income_clean, aes(x = gender, fill = online_shopper)) +
+  geom_bar(position = "fill") +  # proportion of online shoppers by gender
+  labs(title = "Proportion of Online Shoppers by Gender",
+       x = "Gender", y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+
+
+
+H₀ :credit score is independent of education level
+H₁ :credit score is dependent of education level
+
+H0-the mean credit score is equal across education levels
+H1-the mean credit score is NOT equal across education levels
+
+# Credit score related to education level
+```{r}
+# ANOVA: numeric vs categorical
+anova_credit_edu <- aov(credit_score ~ education, data = income_clean)
+summary(anova_credit_edu)
+TukeyHSD(anova_credit_edu)
+```
+p-value < 0.05 → Reject H₀
+There is a statistically significant difference in credit scores among different education levels.
+Education level influences credit score.
+
+Higher education → higher credit score-PhD > Master > Bachelor > Diploma > High School
+All p-values = 0, so every difference is statistically significant.
+Customers with higher degrees (Master’s, PhD) tend to have much higher credit scores.
+Lower education (High School, Diploma) is associated with lower credit scores.
+
+
+```{r}
+ggplot(income_clean, aes(x = education, y = credit_score, fill = education)) +
+  geom_boxplot() +
+  labs(title = "Credit Score by Education Level",
+       x = "Education Level",
+       y = "Credit Score") +
+  theme_minimal()
+```
+
+
+
+ 
+HO:Marital status of females is independent on Educational level 
+H1:Marital status of females is dependent on Educational level
+
+
+# More educated females less likely to marry
+```{r}
+# Filter females
+females <- subset(income_clean, gender == "Female")
+
+# Chi-square: education vs marital status
+table_edu_marital <- table(females$education, females$marital_status)
+chisq.test(table_edu_marital)
+```
+p-value = 0.4335 > 0.05 → Fail to reject H₀
+There is no statistically significant association between education level and marital status for females 
+Among females, marital status does not vary significantly with education level;the level of education does not predict whether a female is single, married
+
+
+
+
+#visulaize marital status ,education level of females
+```{r}
+library(ggplot2)
+
+ggplot(subset(income_clean, gender == "Female"), aes(x = education, fill = marital_status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Marital Status by Education Level (Females)",
+       x = "Education Level", y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+
+
+HO:Marital status of males is independent on Educational level 
+H1:Marital status of males is dependent on Educational level
+
+
+
+#More educated males less likely to marry
+```{r}
+# Subset males
+male_data <- subset(income_clean, gender == "Male")
+
+# Create contingency table
+table_male_edu <- table(male_data$education, male_data$marital_status)
+
+# Run Chi-squared test
+chisq.test(table_male_edu)
+```
+p-value = 0.2696 > 0.05 → Fail to reject H₀
+There is no statistically significant association between education level and marital status for males 
+Among males, marital status does not vary significantly with education level;the level of education does not predict whether a male is single, married
+
+
+
+#visulaize marital status ,education level of females
+```{r}
+
+ggplot(subset(income_clean, gender == "Male"), aes(x = education, fill = marital_status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Marital Status by Education Level (Males)",
+       x = "Education Level", y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+
+
+
+
+# People over 60 prefer cash
+```{r}
+income_clean$payment_type <- as.factor(income_clean$payment_type)
+
+# Filter 60+
+over60 <- subset(income_clean, age > 60)
+table_payment_over60 <- table(over60$payment_type)
+table_payment_over60
+```
+
+#piecahrt to visualise payment type
+```{r}
+# Create data frame for your counts
+payment_data <- data.frame(
+  payment_type = c("Cash", "Credit Card", "Debit Card", "Mobile Money"),
+  count = c(39, 128, 73, 38)
+)
+
+ggplot(payment_data, aes(x = "", y = count, fill = payment_type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "Proportion of Customers by Payment Type") +
+  theme_void()
+```
+
+
+
+
+H0:Payment type is independent on Age
+H1:Payment type is dependent on Age
+
+
+#Age in relation to payment type
+```{r}
+# Ensure factors
+income_clean$payment_type <- as.factor(income_clean$payment_type)
+income_clean$age_group <- cut(income_clean$age, breaks = c(0, 20, 40, 60, 100), 
+                         labels = c("0-20","21-40","41-60","61+"))
+
+# Contingency table
+table_payment_age <- table(income_clean$age_group, income_clean$payment_type)
+
+# Chi-squared test
+chisq.test(table_payment_age)
+```
+p-value = 0.4057 > 0.05 → Fail to reject H₀
+There is no statistically significant association between age and payment type 
+Age does not significantly influence the choice of payment type.
+While you may observe raw counts like more older people using cash, the difference is not statistically significant.
+
+
+
+
+
+HO mean annual income of married customers is equal to those of single customers
+H1 mean annual income of married customers is not equal to those of single customers
+
+
+#Married vs single annual income
+```{r}
+t.test(annual_income ~ marital_status, data = income_clean)
+```
+p-value = 0.897 > 0.05 → Fail to reject H₀
+There is no statistically significant association annual income and marital status
+marital status  does not significantly influence the annual income
+
+
+#visualize income by marital status
+```{r}
+
+ggplot(income_clean, aes(x = marital_status, y = annual_income, fill = marital_status)) +
+  geom_boxplot() +
+  labs(title = "Annual Income by Marital Status",
+       x = "Marital Status",
+       y = "Annual Income") +
+  theme_minimal()
+```
+
+
+
+HO mean annual spending of married customers is equal to those of single customers
+H1 mean annual spending of married customers is not equal to those of single customers
+
+
+#Married vs single annual spending
+```{r}
+t.test(annual_spending ~ marital_status, data = income_clean)
+```
+p-value = 0.6851 > 0.05 → Fail to reject H₀
+There is no statistically significant association annual spending and marital status
+marital status  does not significantly influence the annual spending
+
+
+#visualize spending by marital status
+```{r}
+
+ggplot(income_clean, aes(x = marital_status, y = annual_spending, fill = marital_status)) +
+  geom_boxplot() +
+  labs(title = "Annual spending by Marital Status",
+       x = "Marital Status",
+       y = "Annual Income") +
+  theme_minimal()
+```
+
+
+H0:the mean number of children of  customers across the region is equal
+H1:the mean number of children of  customers across the region is NOT equal
+
+
+#Does the region influence the number of children
+```{r}
+# One-way ANOVA: number of children by region
+anova_children <- aov(number_of_children ~ region, data = income_clean)
+
+# View ANOVA table
+summary(anova_children)
+
+# Post-hoc test if ANOVA is significant
+TukeyHSD(anova_children)
+```
+p-value = 0.708 > 0.05 → Fail to reject H₀
+There is no statistically significant association between the region and the number of children
+region  does not significantly influence the number of children customer bears
+
+
+#number of children per region
+```{r}
+ggplot(income_clean, aes(x = region, y = number_of_children, fill = region)) +
+  geom_boxplot() +
+  labs(title = "Number of children per region",
+       x = "Region",
+       y = "Number_of_children") +
+  theme_minimal()
+```
+
+
+
+#Married customers in suburban areas with children
+```{r}
+# Suburban & married
+suburban_married <- subset(income_clean, region == "Suburban" & marital_status == "Married")
+
+# Check number of children
+table(suburban_married$number_of_children > 1)  # TRUE = more than 1
+```
+
+
+
+H0:The payment type is independent on the level of education
+H1:The payment type is dependent on the level of education
+
+
+#Education level affects payment type
+```{r}
+# Chi-square
+table_edu_payment <- table(income_clean$education, income_clean$payment_type)
+chisq.test(table_edu_payment)
+```
+p-value = 0.039 < 0.05 → Reject H₀
+There is a statistically significant association between education level and payment type.
+The choice of payment type depends on education level.customers with higher education (Bachelor’s, Master’s, PhD) may prefer credit or debit cards, whereas lower education levels may favor cash or mobile money.
+
+
+
+#visualize how Education level affects payment type
+```{r}
+ggplot(income_clean, aes(x = education, fill = payment_type)) +
+  geom_bar(position = "fill") +  # shows proportions by education
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Payment Type Proportion by Education Level",
+       x = "Education Level",
+       y = "Proportion") +
+  theme_minimal()
+```
+
+
+#ROI calculations
+```{r}
+# Retention campaign ROI
+churn_rate <- mean(income_clean$churn == "Yes")
+avg_spending_diff <- 15375 - 13904  # From t-test
+n_customers <- nrow(income_clean)
+
+potential_savings <- churn_rate * n_customers * avg_spending_diff
+cat("Potential revenue from 10% churn reduction: $", 
+    round(potential_savings * 0.10, 2), "\n")
+```
+
+
+
+#SESSION INFOMATION
+```{r}
+sessionInfo()
+```
+
+
+
+# Key Business Insights
+```{r}
+# Key Business Insights
+insights <- list(
+  "1. Income drives 70% of spending variation - focus on income-based segmentation",
+  "2. Churned customers spend $1,471 less annually - retention ROI = $1,471/customer",
+  "3. Unemployed customers 2.3x more likely to churn - target employment verification",
+  "4. Education affects credit score but not spending - separate risk/spending models",
+  "5. Region has NO significant effect - standardize pricing across regions",
+  "6. Gender does NOT affect spending - avoid gender-based marketing",
+  "7. Online shoppers spend $42 more - invest in digital experience"
+)
+
+cat("=== KEY BUSINESS INSIGHTS ===\n")
+for(i in insights) cat(i, "\n")
+```
+
